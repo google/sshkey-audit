@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -233,9 +234,10 @@ func (k *KeyGroup) Keys() []key {
 
 func main() {
 	flag.Parse()
-	if flag.NArg() > 0 {
-		log.Fatalf("Trailing args on cmdline: %q", flag.Args())
+	if flag.NArg() != 1 {
+		log.Fatalf("Command not specified. Supported commands: check, expand")
 	}
+	command := flag.Arg(0)
 
 	// Read keys.
 	keys, err := readKeys(*keyFile)
@@ -284,11 +286,35 @@ func main() {
 			}
 		}
 	}
+	sort.Slice(accounts, func(i, j int) bool {
+		return accounts[i].account < accounts[j].account
+	})
 
-	// Check all accounts.
-	ctx := context.Background()
-	if err := check(ctx, keys, keyGroups, accounts); err != nil {
-		log.Fatalf("blah: %v", err)
+	if command == "check" {
+		ctx := context.Background()
+		if err := check(ctx, keys, keyGroups, accounts); err != nil {
+			log.Fatalf("blah: %v", err)
+		}
+		log.Infof("Done")
+	} else if command == "expand" {
+		re, err := regexp.Compile(*matching)
+		if err != nil {
+			log.Printf("Invalid regex %q: %v", *matching, err)
+		}
+		for _, a := range accounts {
+			if re.FindString(a.account) == "" {
+				continue
+			}
+			var keys []string
+			for _, kgn := range a.keyGroupNames {
+				for _, k := range keyGroups[kgn].Keys() {
+					keys = append(keys, k.description)
+				}
+			}
+			sort.Strings(keys)
+			fmt.Printf("%s\n  %s\n", a.account, strings.Join(keys, "\n  "))
+		}
+	} else {
+		log.Fatalf("Invalid command %q", command)
 	}
-	log.Infof("Done")
 }
