@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"os/exec"
 	"regexp"
@@ -18,6 +19,7 @@ var (
 	accountsFile = flag.String("accounts", "", "File containing account definitions.")
 	groupsFile   = flag.String("groups", "", "File containing group definitions.")
 	matching     = flag.String("matching", ".*", "Only check hosts matching this regex.")
+	doAddMissing = flag.Bool("add_missing", false, "Add missing keys as needed.")
 )
 
 type key struct {
@@ -135,23 +137,57 @@ func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account)
 	return extra, missing, nil
 }
 
-func check(ctx context.Context, kg map[string]*KeyGroup, accounts []account) error {
+func addMissing(ctx context.Context, keys []key, acct account, missing []string) error {
+	var cmds []string
+	for _, name := range missing {
+		log.Infof("Adding %q to %q", name, acct.account)
+		var k *key
+		for _, t := range keys {
+			if name == t.description {
+				k = &t
+				break
+			}
+		}
+		if k == nil {
+			log.Fatalf("Internal error: missing key %q, but can't find it", name)
+		}
+
+		// TODO: random tmpfile name.
+		tmpf := ".ssh/authorized_keys.tmp"
+		ak := ".ssh/authorized_keys"
+		cmds = append(cmds,
+			fmt.Sprintf(`cp %s %s`+
+				` && echo "%s %s %s" >> %s`+
+				` && mv %s %s`,
+				ak, tmpf,
+				k.algorithm, k.key, name, tmpf,
+				tmpf, ak,
+			))
+	}
+	cmd := exec.CommandContext(ctx, "ssh", acct.account, strings.Join(cmds, " && "))
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []account) error {
 	log.Infof("Checking accounts…")
 	re, err := regexp.Compile(*matching)
 	if err != nil {
 		return err
 	}
-	for n := range accounts {
-		if re.FindString(accounts[n].account) == "" {
+	for _, account := range accounts {
+		if re.FindString(account.account) == "" {
 			continue
 		}
 
-		log.Infof("Checking %q", accounts[n].account)
+		log.Infof("Checking %q", account.account)
 		ctx2, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
-		extra, missing, err := checkAccount(ctx2, kg, accounts[n])
+		extra, missing, err := checkAccount(ctx2, kg, account)
 		if err != nil {
-			log.Errorf("Failed to check account %q: %v", accounts[n].account, err)
+			log.Errorf("Failed to check account %q: %v", account.account, err)
 			continue
 		}
 
@@ -160,6 +196,11 @@ func check(ctx context.Context, kg map[string]*KeyGroup, accounts []account) err
 		}
 		if len(missing) > 0 {
 			log.Warningf("Missing keys: %q", missing)
+		}
+		if *doAddMissing {
+			if err := addMissing(ctx, keys, account, missing); err != nil {
+				log.Errorf("Failed to add missing keys %q to %q: %v", missing, account, err)
+			}
 		}
 	}
 	return nil
@@ -246,7 +287,7 @@ func main() {
 
 	// Check all accounts.
 	ctx := context.Background()
-	if err := check(ctx, keyGroups, accounts); err != nil {
+	if err := check(ctx, keys, keyGroups, accounts); err != nil {
 		log.Fatalf("blah: %v", err)
 	}
 	log.Infof("Done")
