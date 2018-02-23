@@ -306,9 +306,13 @@ func main() {
 				continue
 			}
 			var keys []string
+			seen := make(map[string]bool)
 			for _, kgn := range a.keyGroupNames {
 				for _, k := range keyGroups[kgn].Keys() {
-					keys = append(keys, k.description)
+					if !seen[k.description] {
+						keys = append(keys, k.description)
+						seen[k.description] = true
+					}
 				}
 			}
 			sort.Strings(keys)
