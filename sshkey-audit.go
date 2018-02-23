@@ -113,8 +113,13 @@ func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account)
 
 	// Check for missing keys.
 	var missing []string
+	checked := make(map[string]bool)
 	for _, kgn := range account.keyGroupNames {
 		for _, k := range kg[kgn].Keys() {
+			if checked[k.key] {
+				continue
+			}
+			checked[k.key] = true
 			found := false
 			for _, ck := range currentKeys {
 				if k.key == ck.key {
