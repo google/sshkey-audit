@@ -192,6 +192,9 @@ func (k *KeyGroup) Keys() []key {
 
 func main() {
 	flag.Parse()
+	if flag.NArg() > 0 {
+		log.Fatalf("Trailing args on cmdline: %q", flag.Args())
+	}
 
 	// Read keys.
 	keys, err := readKeys(*keyFile)
