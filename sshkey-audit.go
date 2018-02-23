@@ -14,9 +14,10 @@ import (
 )
 
 var (
-	keyFile      = flag.String("keys", "", "")
-	accountsFile = flag.String("accounts", "", "")
-	groupsFile   = flag.String("groups", "", "")
+	keyFile      = flag.String("keys", "", "File containing SSH pubkeys.")
+	accountsFile = flag.String("accounts", "", "File containing account definitions.")
+	groupsFile   = flag.String("groups", "", "File containing group definitions.")
+	matching     = flag.String("matching", ".*", "Only check hosts matching this regex.")
 )
 
 type key struct {
@@ -26,8 +27,8 @@ type key struct {
 }
 
 type account struct {
-	account  string
-	keyNames []string
+	account       string
+	keyGroupNames []string
 }
 
 func parseKeys(b []byte) ([]key, error) {
@@ -60,8 +61,8 @@ func readAccounts(fn string) ([]account, error) {
 	re := regexp.MustCompile(`(?m)^([^#\s]+)\s+(.*)$`)
 	for _, e := range re.FindAllStringSubmatch(string(b), -1) {
 		accounts = append(accounts, account{
-			account:  e[1],
-			keyNames: strings.Split(e[2], " "),
+			account:       e[1],
+			keyGroupNames: strings.Split(e[2], " "),
 		})
 	}
 	return accounts, nil
@@ -92,12 +93,13 @@ func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account)
 	if err != nil {
 		return nil, nil, err
 	}
+	log.Debugf("Found %d current keys", len(currentKeys))
 
 	// Check for extra keys.
 	var extra []string
 	for _, ck := range currentKeys {
 		found := false
-		for _, kn := range account.keyNames {
+		for _, kn := range account.keyGroupNames {
 			a := kg[kn]
 			if a.Has(ck.key) {
 				found = true
@@ -111,17 +113,18 @@ func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account)
 
 	// Check for missing keys.
 	var missing []string
-	for _, kn := range account.keyNames {
-		found := false
-		for _, ck := range currentKeys {
-			a := kg[kn]
-			if a.Has(ck.key) {
-				found = true
-				break
+	for _, kgn := range account.keyGroupNames {
+		for _, k := range kg[kgn].Keys() {
+			found := false
+			for _, ck := range currentKeys {
+				if k.key == ck.key {
+					found = true
+					break
+				}
 			}
-		}
-		if !found {
-			missing = append(missing, kn)
+			if !found {
+				missing = append(missing, k.description)
+			}
 		}
 	}
 	return extra, missing, nil
@@ -129,7 +132,15 @@ func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account)
 
 func check(ctx context.Context, kg map[string]*KeyGroup, accounts []account) error {
 	log.Infof("Checking accounts…")
+	re, err := regexp.Compile(*matching)
+	if err != nil {
+		return err
+	}
 	for n := range accounts {
+		if re.FindString(accounts[n].account) == "" {
+			continue
+		}
+
 		log.Infof("Checking %q", accounts[n].account)
 		ctx2, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
@@ -218,7 +229,7 @@ func main() {
 
 	// Verify that all accounts' keys exist in database.
 	for _, a := range accounts {
-		for _, kn := range a.keyNames {
+		for _, kn := range a.keyGroupNames {
 			if _, found := keyGroups[kn]; !found {
 				log.Fatalf("Unknown key %q for account %q", kn, a.account)
 			}
@@ -230,5 +241,5 @@ func main() {
 	if err := check(ctx, keyGroups, accounts); err != nil {
 		log.Fatalf("blah: %v", err)
 	}
-
+	log.Infof("Done")
 }
