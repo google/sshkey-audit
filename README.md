@@ -1,5 +1,6 @@
 # sshkey-audit
 
+This is not an official Google product.
 
 ## Example
 
