@@ -23,6 +23,7 @@ alice@home.local          @home
 bob@foo.example.com       @work
 carol@my-deskop.lan       @laptops  carol@my-desktop
 irc@my-irc.shell          @home @work @laptops
+^D
 
 $ go get github.com/sirupsen/logrus
 $ go build sshkey-audit.go
@@ -50,5 +51,4 @@ $ ./sshkey-audit --keys=keys.txt --groups=groups.txt --accounts=accounts.txt --a
 [… tool logs in to all accounts and adds any missing keys  …]
 ```
 
-That last one will allow `carol@my-desktop.lan` to ssh to
-`carol@localhost`, which is sometimes useful.
+Adding the `carol@my-desktop` key to allow logging in to `carol@my-desktop.lan` can sometimes be useful to `ssh localhost`.
