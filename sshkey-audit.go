@@ -30,11 +30,12 @@ import (
 )
 
 var (
-	keyFile      = flag.String("keys", "", "File containing SSH pubkeys.")
-	accountsFile = flag.String("accounts", "", "File containing account definitions.")
-	groupsFile   = flag.String("groups", "", "File containing group definitions.")
-	matching     = flag.String("matching", ".*", "Only check hosts matching this regex.")
-	doAddMissing = flag.Bool("add_missing", false, "Add missing keys as needed.")
+	keyFile       = flag.String("keys", "", "File containing SSH pubkeys.")
+	accountsFile  = flag.String("accounts", "", "File containing account definitions.")
+	groupsFile    = flag.String("groups", "", "File containing group definitions.")
+	matching      = flag.String("matching", ".*", "Only check hosts matching this regex.")
+	doAddMissing  = flag.Bool("add_missing", false, "Add missing keys as needed.")
+	doDeleteExtra = flag.Bool("delete_extra", false, "Delete extra keys as needed.")
 )
 
 type key struct {
@@ -107,7 +108,7 @@ func readGroups(fn string) (map[string][]string, error) {
 	return groups, nil
 }
 
-func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account) ([]string, []string, error) {
+func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account) ([]key, []string, error) {
 	cmd := exec.CommandContext(ctx, "ssh", account.account, "cat .ssh/authorized_keys")
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
@@ -122,7 +123,7 @@ func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account)
 	log.Debugf("Found %d current keys", len(currentKeys))
 
 	// Check for extra keys.
-	var extra []string
+	var extra []key
 	for _, ck := range currentKeys {
 		found := false
 		for _, kn := range account.keyGroupNames {
@@ -133,7 +134,7 @@ func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account)
 			}
 		}
 		if !found {
-			extra = append(extra, ck.description)
+			extra = append(extra, ck)
 		}
 	}
 
@@ -159,6 +160,21 @@ func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account)
 		}
 	}
 	return extra, missing, nil
+}
+
+func deleteExtra(ctx context.Context, acct account, extra []key) error {
+	var cmds []string
+	for _, key := range extra {
+		log.Infof("Deleting %q from %q", key.description, acct.account)
+		tmpf := ".ssh/authorized_keys.tmp"
+		ak := ".ssh/authorized_keys"
+		cmds = append(cmds,
+			fmt.Sprintf(`grep -v '^%s %s ' %s > %s`, key.algorithm, key.key, ak, tmpf),
+			fmt.Sprintf(`chmod --reference=%s %s`, ak, tmpf),
+			fmt.Sprintf(`mv %s %s`, tmpf, ak),
+		)
+	}
+	return exec.CommandContext(ctx, "ssh", acct.account, strings.Join(cmds, " && ")).Run()
 }
 
 func addMissing(ctx context.Context, keys []key, acct account, missing []string) error {
@@ -216,7 +232,11 @@ func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []
 		}
 
 		if len(extra) > 0 {
-			log.Warningf("Extra keys: %q", extra)
+			var es []string
+			for _, e := range extra {
+				es = append(es, e.description)
+			}
+			log.Warningf("Extra keys: %q", es)
 		}
 		if len(missing) > 0 {
 			log.Warningf("Missing keys: %q", missing)
@@ -224,6 +244,11 @@ func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []
 		if *doAddMissing {
 			if err := addMissing(ctx, keys, account, missing); err != nil {
 				log.Errorf("Failed to add missing keys %q to %q: %v", missing, account, err)
+			}
+		}
+		if *doDeleteExtra {
+			if err := deleteExtra(ctx, account, extra); err != nil {
+				log.Errorf("Failed to delete extra keys %q from %q: %v", extra, account, err)
 			}
 		}
 	}
