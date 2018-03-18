@@ -49,6 +49,12 @@ $ ./sshkey-audit --keys=keys.txt --groups=groups.txt --accounts=accounts.txt che
 
 $ ./sshkey-audit --keys=keys.txt --groups=groups.txt --accounts=accounts.txt --add_missing check
 [… tool logs in to all accounts and adds any missing keys  …]
+
+$ ./sshkey-audit --keys=keys.txt --groups=groups.txt --accounts=accounts.txt --delete_extra check
+[… tool logs in to all accounts and adds any missing keys  …]
+
+$ # the 'fix' command is equal to 'check' with --add_missing and --delete_extra.
 ```
 
-Adding the `carol@my-desktop` key to allow logging in to `carol@my-desktop.lan` can sometimes be useful to `ssh localhost`.
+Adding the `carol@my-desktop` key to allow logging in to
+`carol@my-desktop.lan` can sometimes be useful to `ssh localhost`.

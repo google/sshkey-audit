@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -30,12 +31,12 @@ import (
 )
 
 var (
-	keyFile       = flag.String("keys", "", "File containing SSH pubkeys.")
-	accountsFile  = flag.String("accounts", "", "File containing account definitions.")
-	groupsFile    = flag.String("groups", "", "File containing group definitions.")
-	matching      = flag.String("matching", ".*", "Only check hosts matching this regex.")
-	doAddMissing  = flag.Bool("add_missing", false, "Add missing keys as needed.")
-	doDeleteExtra = flag.Bool("delete_extra", false, "Delete extra keys as needed.")
+	keyFile         = flag.String("keys", "", "File containing SSH pubkeys.")
+	accountsFile    = flag.String("accounts", "", "File containing account definitions.")
+	groupsFile      = flag.String("groups", "", "File containing group definitions.")
+	matching        = flag.String("matching", ".*", "Only check hosts matching this regex.")
+	flagAddMissing  = flag.Bool("add_missing", false, "Add missing keys as needed (always true for 'fix').")
+	flagDeleteExtra = flag.Bool("delete_extra", false, "Delete extra keys as needed (always true for 'fix').")
 )
 
 type key struct {
@@ -209,7 +210,7 @@ func addMissing(ctx context.Context, keys []key, acct account, missing []string)
 	return nil
 }
 
-func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []account) error {
+func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []account, doAddMissing, doDeleteExtra bool) error {
 	log.Infof("Checking accounts…")
 	re, err := regexp.Compile(*matching)
 	if err != nil {
@@ -239,12 +240,12 @@ func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []
 		if len(missing) > 0 {
 			log.Warningf("Missing keys: %q", missing)
 		}
-		if *doAddMissing {
+		if doAddMissing {
 			if err := addMissing(ctx, keys, account, missing); err != nil {
 				log.Errorf("Failed to add missing keys %q to %q: %v", missing, account, err)
 			}
 		}
-		if *doDeleteExtra {
+		if doDeleteExtra {
 			if err := deleteExtra(ctx, account, extra); err != nil {
 				log.Errorf("Failed to delete extra keys %q from %q: %v", extra, account, err)
 			}
@@ -279,6 +280,20 @@ func (k *KeyGroup) Keys() []key {
 }
 
 func main() {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr,
+			`Usage: %s [options] <command>
+
+Commands:
+   check     Check, but default don't change anything.
+   expand    Print what key can log in where.
+   fix       Fix reality to match what specs say.
+
+Options:
+`, os.Args[0])
+		flag.PrintDefaults()
+	}
+
 	flag.Parse()
 	if flag.NArg() != 1 {
 		log.Fatalf("Command not specified. Supported commands: check, expand")
@@ -336,10 +351,15 @@ func main() {
 		return accounts[i].account < accounts[j].account
 	})
 
-	if command == "check" {
+	if command == "check" || command == "fix" {
 		ctx := context.Background()
-		if err := check(ctx, keys, keyGroups, accounts); err != nil {
-			log.Fatalf("blah: %v", err)
+		am, de := *flagAddMissing, *flagDeleteExtra
+		if command == "fix" {
+			am = true
+			de = true
+		}
+		if err := check(ctx, keys, keyGroups, accounts, am, de); err != nil {
+			log.Fatalf("Failed to check keys: %v", err)
 		}
 		log.Infof("Done")
 	} else if command == "expand" {
