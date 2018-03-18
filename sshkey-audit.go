@@ -196,13 +196,11 @@ func addMissing(ctx context.Context, keys []key, acct account, missing []string)
 		tmpf := ".ssh/authorized_keys.tmp"
 		ak := ".ssh/authorized_keys"
 		cmds = append(cmds,
-			fmt.Sprintf(`cp %s %s`+
-				` && echo "%s %s %s" >> %s`+
-				` && mv %s %s`,
-				ak, tmpf,
-				k.algorithm, k.key, name, tmpf,
-				tmpf, ak,
-			))
+			fmt.Sprintf(`cp %s %s`, ak, tmpf),
+			fmt.Sprintf(`chmod --reference=%s %s`, ak, tmpf),
+			fmt.Sprintf(`echo "%s %s %s" >> %s`, k.algorithm, k.key, name, tmpf),
+			fmt.Sprintf(`mv %s %s`, tmpf, ak),
+		)
 	}
 	cmd := exec.CommandContext(ctx, "ssh", acct.account, strings.Join(cmds, " && "))
 	if err := cmd.Run(); err != nil {
