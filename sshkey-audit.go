@@ -50,13 +50,22 @@ type account struct {
 
 func parseKeys(b []byte) ([]key, error) {
 	var keys []key
+	seen := make(map[string]string)
 	re := regexp.MustCompile(`(?m)^([^\s#]+)\s+([^\s]+)\s+(.*)$`)
 	for _, e := range re.FindAllStringSubmatch(string(b), -1) {
+		if _, found := seen[e[3]]; found {
+			return nil, fmt.Errorf("key ID %q listed more than once", e[3])
+		}
+		if prev, found := seen[e[2]]; found {
+			return nil, fmt.Errorf("key %q is same as %q", e[3], prev)
+		}
 		keys = append(keys, key{
 			algorithm:   e[1],
 			key:         e[2],
 			description: e[3],
 		})
+		seen[e[2]] = e[3]
+		seen[e[3]] = e[3]
 	}
 	return keys, nil
 }
