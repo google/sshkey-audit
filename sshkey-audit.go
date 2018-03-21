@@ -279,6 +279,49 @@ func (k *KeyGroup) Keys() []key {
 	return k.keys
 }
 
+func commandExpand(accounts []account, keyGroups map[string]*KeyGroup, args []string) {
+	fs := flag.NewFlagSet("expand", flag.ExitOnError)
+	var (
+		keysFlag = fs.String("keys", ".*", "Only consider keys matching regex.")
+		showAll  = fs.Bool("show_all", false, "Show all hosts, even if they didn't have any matching keys.")
+	)
+	fs.Parse(flag.Args()[1:])
+	if fs.NArg() > 0 {
+		log.Fatalf("Extra args on cmdline: %q", fs.Args()[1:])
+	}
+	keysRE, err := regexp.Compile(*keysFlag)
+	if err != nil {
+		log.Printf("Invalid regex %q: %v", *matching, err)
+	}
+	re, err := regexp.Compile(*matching)
+	if err != nil {
+		log.Printf("Invalid regex %q: %v", *matching, err)
+	}
+	for _, a := range accounts {
+		if !re.MatchString(a.account) {
+			continue
+		}
+		var keys []string
+		seen := make(map[string]bool)
+		for _, kgn := range a.keyGroupNames {
+			for _, k := range keyGroups[kgn].Keys() {
+				if keysRE.MatchString(k.description) && !seen[k.description] {
+					keys = append(keys, k.description)
+					seen[k.description] = true
+				}
+			}
+		}
+		sort.Strings(keys)
+		if len(keys) > 0 || *showAll {
+			fmt.Printf("%s\n", a.account)
+			if len(keys) > 0 {
+				fmt.Printf("  %s\n", strings.Join(keys, "\n  "))
+			}
+		}
+	}
+
+}
+
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr,
@@ -366,43 +409,7 @@ Options:
 		}
 		log.Infof("Done")
 	} else if command == "expand" {
-		fs := flag.NewFlagSet("expand", flag.ExitOnError)
-		keysFlag := fs.String("keys", ".*", "Only consider keys matching regex.")
-		showAll := fs.Bool("show_all", false, "Show all hosts, even if they didn't have any matching keys.")
-		fs.Parse(flag.Args()[1:])
-		if fs.NArg() > 0 {
-			log.Fatalf("Extra args on cmdline: %q", fs.Args()[1:])
-		}
-		keysRE, err := regexp.Compile(*keysFlag)
-		if err != nil {
-			log.Printf("Invalid regex %q: %v", *matching, err)
-		}
-		re, err := regexp.Compile(*matching)
-		if err != nil {
-			log.Printf("Invalid regex %q: %v", *matching, err)
-		}
-		for _, a := range accounts {
-			if !re.MatchString(a.account) {
-				continue
-			}
-			var keys []string
-			seen := make(map[string]bool)
-			for _, kgn := range a.keyGroupNames {
-				for _, k := range keyGroups[kgn].Keys() {
-					if keysRE.MatchString(k.description) && !seen[k.description] {
-						keys = append(keys, k.description)
-						seen[k.description] = true
-					}
-				}
-			}
-			sort.Strings(keys)
-			if len(keys) > 0 || *showAll {
-				fmt.Printf("%s\n", a.account)
-				if len(keys) > 0 {
-					fmt.Printf("  %s\n", strings.Join(keys, "\n  "))
-				}
-			}
-		}
+		commandExpand(accounts, keyGroups, flag.Args()[1:])
 	} else {
 		log.Fatalf("Invalid command %q", command)
 	}
