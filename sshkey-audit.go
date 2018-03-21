@@ -352,6 +352,9 @@ Options:
 	})
 
 	if command == "check" || command == "fix" {
+		if flag.NArg() != 1 {
+			log.Fatalf("Extra args on cmdline: %q", flag.Args()[1:])
+		}
 		ctx := context.Background()
 		am, de := *flagAddMissing, *flagDeleteExtra
 		if command == "fix" {
@@ -368,7 +371,7 @@ Options:
 		showAll := fs.Bool("show_all", false, "Show all hosts, even if they didn't have any matching keys.")
 		fs.Parse(flag.Args()[1:])
 		if fs.NArg() > 0 {
-			log.Fatalf("Extra args on cmdline: %q", fs.Args())
+			log.Fatalf("Extra args on cmdline: %q", fs.Args()[1:])
 		}
 		keysRE, err := regexp.Compile(*keysFlag)
 		if err != nil {
