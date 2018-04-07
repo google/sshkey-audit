@@ -17,6 +17,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -227,6 +228,7 @@ func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []
 	if err != nil {
 		return err
 	}
+	var ret []error
 	for _, account := range accounts {
 		if re.FindString(account.account) == "" {
 			continue
@@ -237,7 +239,9 @@ func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []
 		defer cancel()
 		extra, missing, err := checkAccount(ctx2, kg, account)
 		if err != nil {
-			log.Errorf("Failed to check account %q: %v", account.account, err)
+			err = fmt.Errorf("Failed to check account %q: %v", account.account, err)
+			log.Error(err)
+			ret = append(ret, err)
 			continue
 		}
 
@@ -253,7 +257,10 @@ func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []
 		}
 		if doAddMissing {
 			if err := addMissing(ctx, keys, account, missing); err != nil {
-				log.Errorf("Failed to add missing keys %q to %q: %v", missing, account, err)
+				err = fmt.Errorf("Failed to add missing keys %q to %q: %v", missing, account, err)
+				log.Error(err)
+				ret = append(ret, err)
+
 			}
 		}
 		if doDeleteExtra {
@@ -262,7 +269,14 @@ func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []
 			}
 		}
 	}
-	return nil
+	if len(ret) == 0 {
+		return nil
+	}
+	var ss []string
+	for _, e := range ret {
+		ss = append(ss, e.Error())
+	}
+	return errors.New(strings.Join(ss, ";"))
 }
 
 type KeyGroup struct {
