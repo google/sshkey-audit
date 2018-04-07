@@ -40,6 +40,16 @@ var (
 	timeout         = flag.Duration("timeout", 20*time.Second, "Timeout per login.")
 )
 
+func runWrap(ctx context.Context, cmd *exec.Cmd) error {
+	err := cmd.Run()
+	if err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("timeout")
+		}
+	}
+	return err
+}
+
 type key struct {
 	algorithm   string
 	key         string
@@ -114,7 +124,7 @@ func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account)
 	cmd := exec.CommandContext(ctx, "ssh", account.account, "cat .ssh/authorized_keys")
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
-	if err := cmd.Run(); err != nil {
+	if err := runWrap(ctx, cmd); err != nil {
 		return nil, nil, err
 	}
 	var err error
@@ -176,7 +186,7 @@ func deleteExtra(ctx context.Context, acct account, extra []key) error {
 			fmt.Sprintf(`mv %s %s`, tmpf, ak),
 		)
 	}
-	return exec.CommandContext(ctx, "ssh", acct.account, strings.Join(cmds, " && ")).Run()
+	return runWrap(ctx, exec.CommandContext(ctx, "ssh", acct.account, strings.Join(cmds, " && ")))
 }
 
 func addMissing(ctx context.Context, keys []key, acct account, missing []string) error {
@@ -205,7 +215,7 @@ func addMissing(ctx context.Context, keys []key, acct account, missing []string)
 		)
 	}
 	cmd := exec.CommandContext(ctx, "ssh", acct.account, strings.Join(cmds, " && "))
-	if err := cmd.Run(); err != nil {
+	if err := runWrap(ctx, cmd); err != nil {
 		return err
 	}
 	return nil
