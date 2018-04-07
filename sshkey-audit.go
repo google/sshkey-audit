@@ -37,6 +37,7 @@ var (
 	matching        = flag.String("matching", ".*", "Only check hosts matching this regex.")
 	flagAddMissing  = flag.Bool("add_missing", false, "Add missing keys as needed (always true for 'fix').")
 	flagDeleteExtra = flag.Bool("delete_extra", false, "Delete extra keys as needed (always true for 'fix').")
+	timeout         = flag.Duration("timeout", 20*time.Second, "Timeout per login.")
 )
 
 type key struct {
@@ -222,7 +223,7 @@ func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []
 		}
 
 		log.Infof("Checking %q", account.account)
-		ctx2, cancel := context.WithTimeout(ctx, 60*time.Second)
+		ctx2, cancel := context.WithTimeout(ctx, *timeout)
 		defer cancel()
 		extra, missing, err := checkAccount(ctx2, kg, account)
 		if err != nil {
