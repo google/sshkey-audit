@@ -39,6 +39,8 @@ var (
 	flagAddMissing  = flag.Bool("add_missing", false, "Add missing keys as needed (always true for 'fix').")
 	flagDeleteExtra = flag.Bool("delete_extra", false, "Delete extra keys as needed (always true for 'fix').")
 	timeout         = flag.Duration("timeout", 20*time.Second, "Timeout per login.")
+
+	authorizedKeysFile = flag.String("authorized_keys", ".ssh/authorized_keys", "Default authorized_keys file. Usually left as default, and set per-account.")
 )
 
 func runWrap(ctx context.Context, cmd *exec.Cmd) error {
@@ -59,6 +61,7 @@ type key struct {
 
 type account struct {
 	account       string
+	file          string
 	keyGroupNames []string
 }
 
@@ -98,11 +101,16 @@ func readAccounts(fn string) ([]account, error) {
 		return nil, err
 	}
 	var accounts []account
-	re := regexp.MustCompile(`(?m)^([^#\s]+)\s+(.*)$`)
+	re := regexp.MustCompile(`(?m)^([^#\s:]+)(?::([^\s]+))?\s+(.*)$`)
 	for _, e := range re.FindAllStringSubmatch(string(b), -1) {
+		p := e[2]
+		if p == "" {
+			p = *authorizedKeysFile
+		}
 		accounts = append(accounts, account{
 			account:       e[1],
-			keyGroupNames: strings.Split(e[2], " "),
+			file:          p,
+			keyGroupNames: strings.Split(e[3], " "),
 		})
 	}
 	return accounts, nil
@@ -122,7 +130,7 @@ func readGroups(fn string) (map[string][]string, error) {
 }
 
 func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account) ([]key, []string, error) {
-	cmd := exec.CommandContext(ctx, "ssh", account.account, "cat .ssh/authorized_keys")
+	cmd := exec.CommandContext(ctx, "ssh", account.account, fmt.Sprintf("cat %q", account.file))
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	if err := runWrap(ctx, cmd); err != nil {
@@ -179,8 +187,8 @@ func deleteExtra(ctx context.Context, acct account, extra []key) error {
 	var cmds []string
 	for _, key := range extra {
 		log.Infof("Deleting %q from %q", key.description, acct.account)
-		tmpf := ".ssh/authorized_keys.tmp"
-		ak := ".ssh/authorized_keys"
+		tmpf := acct.file + ".tmp"
+		ak := acct.file
 		cmds = append(cmds,
 			fmt.Sprintf(`grep -v '^%s %s ' %s > %s`, key.algorithm, key.key, ak, tmpf),
 			fmt.Sprintf(`chmod --reference=%s %s`, ak, tmpf),
@@ -206,8 +214,8 @@ func addMissing(ctx context.Context, keys []key, acct account, missing []string)
 		}
 
 		// TODO: random tmpfile name.
-		tmpf := ".ssh/authorized_keys.tmp"
-		ak := ".ssh/authorized_keys"
+		tmpf := acct.file + ".tmp"
+		ak := acct.file
 		cmds = append(cmds,
 			fmt.Sprintf(`cp %s %s`, ak, tmpf),
 			fmt.Sprintf(`chmod --reference=%s %s`, ak, tmpf),
@@ -234,7 +242,7 @@ func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []
 			continue
 		}
 
-		log.Infof("Checking %q", account.account)
+		log.Infof("Checking %q file %q", account.account, account.file)
 		ctx2, cancel := context.WithTimeout(ctx, *timeout)
 		defer cancel()
 		extra, missing, err := checkAccount(ctx2, kg, account)
