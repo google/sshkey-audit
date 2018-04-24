@@ -5,25 +5,23 @@ This is not an official Google product.
 ## Example
 
 ```
-$ cat > keys.txt
+$ cat keys.txt
 ssh-rsa AAAAAhuteonhuneo… my-awesome-laptop
 ssh-rsa AAAAhtuhsotiesi…  carol@my-desktop
 ssh-rsa AAAAhtuhutnuheo…  corp@work-laptop
 ssh-rsa AAAAhtuhuueoueo…  my-manager@their-work-laptop
-^D
 
-$ cat > groups.txt
+$ cat groups.txt
 home    my-awesome-laptop carol@my-desktop
 work    corp@work-laptop  my-manager@their-work-laptop
 laptops my-awesome-laptop corp@work-laptop
-^D
 
-$ cat > accounts.txt
-alice@home.local          @home
-bob@foo.example.com       @work
-carol@my-deskop.lan       @laptops  carol@my-desktop
-irc@my-irc.shell          @home @work @laptops
-^D
+$ cat accounts.txt
+alice@home.local                                  @home
+bob@foo.example.com                               @work
+carol@my-deskop.lan                               @laptops  carol@my-desktop
+irc@my-irc.shell                                  @home @work @laptops
+admin@my-router.lan:/etc/dropbear/authorized_keys @home
 
 $ go get github.com/sirupsen/logrus
 $ go build sshkey-audit.go
@@ -42,6 +40,9 @@ carol@my-deskop.lan
 irc@my-irc.shell
   carol@my-desktop
   corp@work-laptop
+  my-awesome-laptop
+admin@my-router.lan
+  carol@my-desktop
   my-awesome-laptop
 
 $ ./sshkey-audit --keys=keys.txt --groups=groups.txt --accounts=accounts.txt check
