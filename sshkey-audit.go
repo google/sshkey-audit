@@ -32,6 +32,7 @@ import (
 )
 
 var (
+	verbose         = flag.Bool("verbose", false, "Show more output.")
 	keyFile         = flag.String("keys", "", "File containing SSH pubkeys.")
 	accountsFile    = flag.String("accounts", "", "File containing account definitions.")
 	groupsFile      = flag.String("groups", "", "File containing group definitions.")
@@ -133,6 +134,9 @@ func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account)
 	cmd := exec.CommandContext(ctx, "ssh", account.account, fmt.Sprintf("cat %q", account.file))
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
+	if *verbose {
+		cmd.Stderr = os.Stderr
+	}
 	if err := runWrap(ctx, cmd); err != nil {
 		return nil, nil, err
 	}
@@ -195,7 +199,11 @@ func deleteExtra(ctx context.Context, acct account, extra []key) error {
 			fmt.Sprintf(`mv %s %s`, tmpf, ak),
 		)
 	}
-	return runWrap(ctx, exec.CommandContext(ctx, "ssh", acct.account, strings.Join(cmds, " && ")))
+	cmd := exec.CommandContext(ctx, "ssh", acct.account, strings.Join(cmds, " && "))
+	if *verbose {
+		cmd.Stderr = os.Stderr
+	}
+	return runWrap(ctx, cmd)
 }
 
 func addMissing(ctx context.Context, keys []key, acct account, missing []string) error {
@@ -224,10 +232,10 @@ func addMissing(ctx context.Context, keys []key, acct account, missing []string)
 		)
 	}
 	cmd := exec.CommandContext(ctx, "ssh", acct.account, strings.Join(cmds, " && "))
-	if err := runWrap(ctx, cmd); err != nil {
-		return err
+	if *verbose {
+		cmd.Stderr = os.Stderr
 	}
-	return nil
+	return runWrap(ctx, cmd)
 }
 
 func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []account, doAddMissing, doDeleteExtra bool) error {
