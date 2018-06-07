@@ -52,7 +52,7 @@ $ ./sshkey-audit --keys=keys.txt --groups=groups.txt --accounts=accounts.txt --a
 [… tool logs in to all accounts and adds any missing keys  …]
 
 $ ./sshkey-audit --keys=keys.txt --groups=groups.txt --accounts=accounts.txt --delete_extra check
-[… tool logs in to all accounts and adds any missing keys  …]
+[… tool logs in to all accounts and deletes any extraneous keys  …]
 
 $ # the 'fix' command is equal to 'check' with --add_missing and --delete_extra.
 ```
