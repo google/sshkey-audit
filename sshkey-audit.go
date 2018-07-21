@@ -41,7 +41,7 @@ var (
 	flagAddMissing  = flag.Bool("add_missing", false, "Add missing keys as needed (always true for 'fix').")
 	flagDeleteExtra = flag.Bool("delete_extra", false, "Delete extra keys as needed (always true for 'fix').")
 	timeout         = flag.Duration("timeout", 20*time.Second, "Timeout per login.")
-	concurrency     = flag.Int64("concurrency", 10, "Accounts to check concurrently.")
+	concurrency     = flag.Int64("concurrency", 1, "Accounts to check concurrently.")
 
 	authorizedKeysFile = flag.String("authorized_keys", ".ssh/authorized_keys", "Default authorized_keys file. Usually left as default, and set per-account.")
 )
