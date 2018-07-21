@@ -29,6 +29,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/semaphore"
 )
 
 var (
@@ -40,6 +41,7 @@ var (
 	flagAddMissing  = flag.Bool("add_missing", false, "Add missing keys as needed (always true for 'fix').")
 	flagDeleteExtra = flag.Bool("delete_extra", false, "Delete extra keys as needed (always true for 'fix').")
 	timeout         = flag.Duration("timeout", 20*time.Second, "Timeout per login.")
+	concurrency     = flag.Int64("concurrency", 10, "Accounts to check concurrently.")
 
 	authorizedKeysFile = flag.String("authorized_keys", ".ssh/authorized_keys", "Default authorized_keys file. Usually left as default, and set per-account.")
 )
@@ -130,7 +132,9 @@ func readGroups(fn string) (map[string][]string, error) {
 	return groups, nil
 }
 
-func checkAccount(ctx context.Context, kg map[string]*KeyGroup, account account) ([]key, []string, error) {
+// checkAccountStatus logs in to an account and looks for extra and
+// missing keys.
+func checkAccountStatus(ctx context.Context, kg map[string]*KeyGroup, account account) ([]key, []string, error) {
 	cmd := exec.CommandContext(ctx, "ssh", account.account, fmt.Sprintf("cat %q", account.file))
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
@@ -238,52 +242,103 @@ func addMissing(ctx context.Context, keys []key, acct account, missing []string)
 	return runWrap(ctx, cmd)
 }
 
+// processAccount checks one account for correct keys, and sends
+// callback on `ops` to fix any problems found.
+func processAccount(ctx context.Context, keys []key, kg map[string]*KeyGroup, re *regexp.Regexp, account account, doAddMissing, doDeleteExtra bool, ops chan<- func(ctx context.Context) error) error {
+	if re.FindString(account.account) == "" {
+		return nil
+	}
+
+	log.Infof("Checking %q file %q", account.account, account.file)
+	ctx2, cancel := context.WithTimeout(ctx, *timeout)
+	defer cancel()
+	extra, missing, err := checkAccountStatus(ctx2, kg, account)
+	if err != nil {
+		return fmt.Errorf("Failed to check account %q: %v", account.account, err)
+	}
+
+	if len(missing) > 0 {
+		log.Warningf("%s Missing keys: %q", account.account, missing)
+		if doAddMissing {
+			ops <- func(ctx context.Context) error {
+				if err := addMissing(ctx, keys, account, missing); err != nil {
+					err = fmt.Errorf("Failed to add missing keys %q to %q: %v", missing, account, err)
+					log.Error(err)
+
+				}
+				return err
+			}
+		}
+	}
+	if len(extra) > 0 {
+		var es []string
+		for _, e := range extra {
+			es = append(es, e.description)
+		}
+		log.Warningf("%s Extra keys: %q", account.account, es)
+		if doDeleteExtra {
+			ops <- func(ctx context.Context) error {
+				err := deleteExtra(ctx, account, extra)
+				if err != nil {
+					err = fmt.Errorf("Failed to delete extra keys %q from %q: %v", extra, account, err)
+				}
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// check checks all accounts concurrently.
 func check(ctx context.Context, keys []key, kg map[string]*KeyGroup, accounts []account, doAddMissing, doDeleteExtra bool) error {
 	log.Infof("Checking accounts…")
 	re, err := regexp.Compile(*matching)
 	if err != nil {
 		return err
 	}
-	var ret []error
+	sem := semaphore.NewWeighted(*concurrency)
+	checkerSem := semaphore.NewWeighted(int64(len(accounts)))
+	// Every account can enqueue two ops.
+	ops := make(chan func(ctx context.Context) error, len(accounts)*2)
+
+	// Every account can have two ops fail, and also the function
+	// itself can fail.
+	errs := make(chan error, len(accounts)*3)
+
+	// Run checkers.
 	for _, account := range accounts {
-		if re.FindString(account.account) == "" {
-			continue
-		}
-
-		log.Infof("Checking %q file %q", account.account, account.file)
-		ctx2, cancel := context.WithTimeout(ctx, *timeout)
-		defer cancel()
-		extra, missing, err := checkAccount(ctx2, kg, account)
-		if err != nil {
-			err = fmt.Errorf("Failed to check account %q: %v", account.account, err)
-			log.Error(err)
-			ret = append(ret, err)
-			continue
-		}
-
-		if len(extra) > 0 {
-			var es []string
-			for _, e := range extra {
-				es = append(es, e.description)
+		sem.Acquire(ctx, 1)
+		checkerSem.Acquire(ctx, 1)
+		account := account
+		go func() {
+			defer sem.Release(1)
+			defer checkerSem.Release(1)
+			if err := processAccount(ctx, keys, kg, re, account, doAddMissing, doDeleteExtra, ops); err != nil {
+				errs <- err
 			}
-			log.Warningf("Extra keys: %q", es)
-		}
-		if len(missing) > 0 {
-			log.Warningf("Missing keys: %q", missing)
-		}
-		if doAddMissing {
-			if err := addMissing(ctx, keys, account, missing); err != nil {
-				err = fmt.Errorf("Failed to add missing keys %q to %q: %v", missing, account, err)
-				log.Error(err)
-				ret = append(ret, err)
+		}()
 
+	}
+	go func() {
+		checkerSem.Acquire(ctx, int64(len(accounts)))
+		close(ops)
+	}()
+	// Run fixers.
+	for f := range ops {
+		sem.Acquire(ctx, 1)
+		f := f
+		go func() {
+			defer sem.Release(1)
+			if err := f(ctx); err != nil {
+				errs <- err
 			}
-		}
-		if doDeleteExtra {
-			if err := deleteExtra(ctx, account, extra); err != nil {
-				log.Errorf("Failed to delete extra keys %q from %q: %v", extra, account, err)
-			}
-		}
+		}()
+	}
+	sem.Acquire(ctx, *concurrency)
+	close(errs)
+	var ret []error
+	for e := range errs {
+		ret = append(ret, e)
 	}
 	if len(ret) == 0 {
 		return nil
