@@ -199,7 +199,7 @@ func deleteExtra(ctx context.Context, acct account, extra []key) error {
 		ak := acct.file
 		cmds = append(cmds,
 			fmt.Sprintf(`grep -v '^%s %s ' %s > %s`, key.algorithm, key.key, ak, tmpf),
-			fmt.Sprintf(`(chmod --reference=%q %q 2>/dev/null || chmod $(stat -c %%a %q) %q)`, ak, tmpf, ak, tmpf),
+			refChmod(ak, tmpf),
 			fmt.Sprintf(`mv %s %s`, tmpf, ak),
 		)
 	}
@@ -208,6 +208,10 @@ func deleteExtra(ctx context.Context, acct account, extra []key) error {
 		cmd.Stderr = os.Stderr
 	}
 	return runWrap(ctx, cmd)
+}
+
+func refChmod(ak, tmpf string) string {
+	return fmt.Sprintf(`(chmod --reference=%[1]q %[2]q 2>/dev/null || chmod $(stat -c %%a %[1]q || stat -f %%Mp%%Lp %[1]q) %[2]q)`, ak, tmpf)
 }
 
 func addMissing(ctx context.Context, keys []key, acct account, missing []string) error {
@@ -230,7 +234,7 @@ func addMissing(ctx context.Context, keys []key, acct account, missing []string)
 		ak := acct.file
 		cmds = append(cmds,
 			fmt.Sprintf(`cp %s %s`, ak, tmpf),
-			fmt.Sprintf(`(chmod --reference=%q %q 2> /dev/null || chmod $(stat -c %%a %q) %q)`, ak, tmpf, ak, tmpf),
+			refChmod(ak, tmpf),
 			fmt.Sprintf(`echo "%s %s %s" >> %s`, k.algorithm, k.key, name, tmpf),
 			fmt.Sprintf(`mv %s %s`, tmpf, ak),
 		)
