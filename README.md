@@ -1,3 +1,5 @@
+# Moved to [github.com/ThomasHabets/sshkey-audit](https://github.com/ThomasHabets/sshkey-audit)
+
 # sshkey-audit
 
 This is not an official Google product.
